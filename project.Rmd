@@ -1,0 +1,372 @@
+---
+title: "Airbnbs in the Netherlands"
+author: "Ali Schuh"
+date: "December 1, 2021"
+output:
+  html_document: 
+    theme: cerulean
+  github_document: default
+---
+
+```{r data-import, echo = FALSE}
+airbnb <- read.csv("data/PP data set.csv", na = c("", "N/A"))
+```
+
+```{r load-packages, include  = FALSE}
+library(tidyverse)
+library(dplyr)
+library(broom)
+library(prettydoc)
+```
+
+# Introduction
+
+**General Research Question:**
+
+What factors have an impact on the price of an Airbnb? Is there a combination of factors that have a strong effect on price?
+The factors in consideration are number of bedrooms, number of bathrooms, room type, minimum nights of stay, overall rating, property type, and number of people the Airbnb accommodates.
+
+**My Data:**
+
+```{r number-of-locations, results = 'hide', echo = FALSE}
+airbnb %>%
+  count(host_id)
+```
+
+For my project, I decided to look for a data set on a website that I discovered during our data science class last spring; the website is data.world. I like this website because it is easy to see the format of the data and has interesting topics with usually clean data. My data set is in csv format and is information based off of 6,334 Airbnb locations in the Netherlands; this data was collected 2 years ago. There is no information on how it was collected, but my assumption would be that after people stay in the Airbnb, they fill out a survey where they rate their stay; then that survey is combined with information about the location, and that is how this data set was formulated. 
+
+Airbnbs are places that are rented out by their owners for people to stay in when they go on vacation and want to stay in something homier than a hotel. Airbnbs can be anything from a single room that is rented out to an entire house. Each one is different because every Airbnb has their owner's personal touch. Airbnbs are rented out through the Airbnb website where owners can post their rentals and people who are interested in rentals can browse the available properties.
+
+The variables consist of basic information about the Airbnb locations like host ID, city, state, property type, room type, number of bedrooms/bathrooms/beds, the price, the minimum night stay, etc. Then, after the basic information, is how each location was rated in different categories like cleanliness, communication, check-in, accuracy, location (all out of 10) and then there is an overall rating out of 100.
+
+The data set has 33 columns and 7,833 observations. Each row/observation represents an individual stay at an Airbnb location. When glancing at the data, there are missing values, mostly in the ratings columns. During my analysis, I will need to keep in mind those N/A's and filter those observations out if I decide to use those variables. 
+
+Link to data: https://data.world/aewart/airbnb-raw-data 
+
+# Exploratory Data Analysis & Visualizations
+
+When I first started to explore my data, I needed to research the form of currency the Netherlands uses; it is the Euro. This was a very important discovery for me because I use the price variable frequently in my visualizations and I was portraying it in US dollars. After this realization, I added a column to my data set called "dollars" which converts the price from Euros to dollars; I researched the conversion factor and it was 1 Euro = 1.13 dollars. Below are the summary statistics of price in dollars.
+```{r data-exploration-1, echo = FALSE}
+
+# Converting price (Euros) to dollars
+airbnb <- airbnb %>%
+  mutate(dollars = price * 1.13)
+
+# Calculating the price range of the Airbnb's
+airbnb %>%
+  summarize(max(dollars),
+            min(dollars),
+            median(dollars),
+            mean(dollars))
+```
+
+After calculating some summary statistics about the price range of Airbnbs in this data set, I decided to filter for prices less than or equal to 800 because the original histogram was very right skewed as shown below. Another thing I came across that I needed to change was the variable types of the factors I was exploring. At first, they were numeric which did not allow me to explore the relationships between them and price. To change this, I wrote a mutate statement and rewrote the variables I was interested in exploring, changing them to character types; this allowed me to create visualizations that were going to help me answer my question. I also used my filter to not include any observations where the variables "bedrooms" and "bathrooms" had missing values.
+
+```{r data-exploration-2, echo = FALSE, message = FALSE}
+
+# Histogram of price distribution - before filter 
+ggplot(airbnb, aes(x = dollars)) +
+  geom_histogram() +
+  labs(x = "Price", 
+       y = "Frequency", 
+       title = "Distribution of Price")+
+  scale_x_continuous(labels=scales::dollar_format()) + 
+  theme_grey()
+
+# Changing variables to character type and filtering some data
+airbnb <- airbnb %>%
+  mutate(host_since_year = as.character(host_since_year),
+         bathrooms = as.character(bathrooms),
+         minimum_nights = as.character(minimum_nights),
+         bedrooms = as.character(bedrooms)) %>%
+  filter(dollars <= 800,
+         bathrooms != "NA",
+         bedrooms != "NA") 
+
+# Histogram of price distribution - after filter
+ggplot(airbnb, aes(x = dollars)) +
+  geom_histogram() +
+  labs(x = "Price", 
+       y = "Frequency", 
+       title = "Distribution of Price",
+       subtitle = "For prices up to $800") +
+  scale_x_continuous(labels=scales::dollar_format()) +
+  theme_grey()
+```
+
+### Minimum Nights to Stay
+This boxplot shows me that there isn't an obvious trend between the two variables, price and minimum nights to stay. This made me realize that there aren't many Airbnbs that have a minimum requirement of 8 nights or more. I am still going to include this in my main model because a pattern may emerge when joined with other variables.
+
+```{r price-and-min-stay, echo = FALSE, warning = FALSE}
+
+ airbnb %>%
+  ggplot(aes(x = minimum_nights, y = price)) +
+  geom_boxplot() +
+  labs(x = "Minimum Nights to Stay",
+       y = "Price of Airbnb per night", 
+       title = "The effect of the Minimum Nights on the Price",
+       subtitle = "For prices up to $800") +
+  scale_x_discrete(limits = c("1", "2", "3", "4", "5", "6", "7", "8", "9",
+                              "10", "12", "13", "14", "15", "16", "18", "19",
+                              "20", "21", "24", "25", "27")) +
+  theme_grey()
+```
+
+### Overall Rating
+This variable I decided to explore after I turned my proposal in. Since they are both quantitative variables, I decided to do a scatter plot. At first look, I thought that there may be linear relationship between the variables because of the trend I see in the plot from ratings starting around 70 going up to 100. Since there seemed to be a trend, I did some linear regression to find the r-squared value which tells us how strong the relationship is. Below the graph are two tables that show the equation produced and the statistics that came from the linear regression. In the second table, the r-squared value is 0.00822, this is a very very low value. The reason that could be might be the lack of people rating the Airbnbs they stayed in. This variable still might help create a strong model that predicts price, so I will include it in my final model.
+
+```{r price-and-rating, echo = FALSE, warning = FALSE}
+
+ggplot(airbnb, aes(x = review_scores_rating, y = dollars)) +
+  geom_point()+
+  labs(x = "Review Scores Overall Rating",
+       y = "Price",
+       title = "The effect of the Overall Rating on Price",
+       subtitle = "For prices up to $800") +
+  scale_y_continuous(labels=scales::dollar_format()) +
+  theme_grey()
+
+# Linear Regression Model
+price_rating <- lm(dollars ~ review_scores_rating, data = airbnb)
+tidy(price_rating)
+glance(price_rating)
+
+```
+
+
+### Number of Bedrooms
+Before I even explored this relationship in my project proposal, due to common and previous knowledge, I had assumed that there would be some sort of strong relationship between the number of bedrooms and price. When I explored these variables in my proposal, I created the boxplot below and immediately knew that this variable will bring a strong basis to my final model. My next step was to perform linear regression with categorical predictors. Below my boxplot, there are two tables; one is the linear regression equation for the relationship and the one below that is the regression statistics. The second table holds the r-squared value that is important to look at when determining the strength of the linear relationship. The r-squared value for this regression equation is 0.347; this is a relatively high r-squared value compared to the other r-squared values we have seen so far and will continue to see for individual variables. When I add this variable to my final model, it will strengthen the relationship.
+
+```{r price-and-bedrooms, echo = FALSE, warning = FALSE}
+
+ ggplot(airbnb, aes(x = bedrooms, y = dollars)) +
+  geom_boxplot() +
+  labs(x = "Number of Bedrooms",
+       y = "Price of Airbnb per night", 
+       title = "The effect of the Number of Bedrooms on the Price",
+       subtitle = "For prices up to $800") +
+  scale_x_discrete(limits = c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+                              "10")) +
+  scale_y_continuous(labels=scales::dollar_format()) +
+  theme_grey()
+
+# Linear Regression Model
+price_bed <- lm(dollars ~ bedrooms, data = airbnb)
+tidy(price_bed)
+glance(price_bed)
+
+```
+
+### Number of Bathrooms
+Similar to the number of bedrooms, before I even explored this relationship in my project proposal, due to common and previous knowledge, I had assumed that there would be some sort of strong relationship between the number of bathrooms and price. I explored this relationship by creating the boxplot below and immediately saw a trend in the medians of the data. The trend appears to be linear, so I created a linear regression model and calculated the r-squared value which came out to be 0.168. This is not a very strong r-squared value, but I believe that if it is paired alongside other variables that it will help create a strong model.
+
+```{r price-and-bathrooms, echo = FALSE, warning = FALSE}
+
+  ggplot(airbnb, aes(x = bathrooms, y = dollars)) +
+  geom_boxplot() +
+  labs(x = "Number of Bathrooms", 
+       y = "Price of Airbnb per night", 
+       title = "The effect of the Number of Bathrooms on the Price",
+       subtitle = "For prices up to $800") +
+  scale_y_continuous(labels=scales::dollar_format()) +
+  theme_grey()
+
+# Linear Regression Model
+price_bath <- lm(dollars ~ bathrooms, data = airbnb)
+tidy(price_bath)
+glance(price_bath)
+
+```
+
+### Room Type
+I began exploring this value during my proposal. Again, off of common and previous knowledge, I thought that whether you are renting a whole house or just one room would affect the price you pay. I created a boxplot to study this relationship and just by observing it, the plot shows that an entire house or apartment has a higher price than the other two types. This is the last variable I will include in my model as I see that this one and the previous ones are the variables that could affect the price the most.
+```{r price-and-room-type, echo = FALSE, warning = FALSE}
+
+ggplot(airbnb, aes(x = room_type, y = dollars)) +
+  geom_boxplot() +
+  labs(x = "Room Type",
+       y = "Price of Airbnb per night", 
+       title = "The effect of the Room Type on the Price",
+       subtitle = "For prices up to $800") +
+  scale_y_continuous(labels=scales::dollar_format()) +
+  theme_grey()
+
+```
+
+## Final Models & Statistics
+
+Now we will assemble the model that will be used to answer our research question. This is a linear regression model using categorical predictors; the variables included in the model are the five variables that we explored in the EDA section above. Since there are multiple levels in some of the variables, some data wrangling was needed before actually producing the model. To wrangle the data, I used a case_when statement to put each observation in a few categories; this allowed for a simpler linear regression model because there are less components to the model.
+```{r first-model, echo = FALSE}
+
+# Data Wrangling
+airbnb_new <- airbnb %>%
+  mutate(bathrooms = case_when(bathrooms == "0" ~ "0-0.5",
+                               bathrooms == "0.5" ~ "0-0.5",
+                               bathrooms == "1" ~ "1-1.5",
+                               bathrooms == "1.5" ~ "1-1.5",
+                               bathrooms == "2" ~ "2-2.5",
+                               bathrooms == "2.5" ~ "2-2.5",
+                               TRUE ~ "3+"), 
+        bathrooms = factor(bathrooms, level = c("0-0.5", "1-1.5","2-2.5", "3+"))) %>%
+          
+  mutate(bedrooms = case_when(bedrooms == "0" ~ "0-2",
+                              bedrooms == "1" ~ "0-2",
+                              bedrooms == "2" ~ "0-2",
+                              bedrooms == "3" ~ "3-5",
+                              bedrooms == "4" ~ "3-5",
+                              bedrooms == "5" ~ "3-5",
+                              TRUE ~ "6+"),
+         bedrooms = factor(bedrooms, level = c("0-2", "3-5","6+"))) %>%
+  
+  mutate(minimum_nights = case_when(minimum_nights == "1" ~ "1-3",
+                                    minimum_nights == "2" ~ "1-3",
+                                    minimum_nights == "3" ~ "1-3",
+                                    minimum_nights == "4" ~ "4-7",
+                                    minimum_nights == "5" ~ "4-7",
+                                    minimum_nights == "6" ~ "4-7",
+                                    minimum_nights == "7" ~ "4-7",
+                                    TRUE ~ "8+"),
+         minimum_nights = factor(minimum_nights, level = c("1-3", "4-7", "8+")))
+
+# Linear Regression Model
+price <- lm(dollars ~ room_type + bathrooms + bedrooms + minimum_nights + review_scores_rating, data = airbnb_new)
+tidy(price)
+glance(price)
+
+# Backwards Elimination
+final_model <- step(price, direction = "backward")
+tidy(final_model) %>% select(term, estimate, p.value)
+
+glance(final_model)
+
+# Plotting residuals 
+par(mfrow = c(2,2))
+plot(final_model)
+
+```
+
+To get the overall best model, I used backward elimination which combs through every combination of the model, even eliminating some variables to see if the model is a better fit without them. Most of the time one variable is removed, but in this case the best model includes all of the variables. This means that each variable is significant when it comes to predicting the price of an Airbnb. Also, if you take a look at the p-values for each variable, they are also of significance. One last thing I want to highlight is the residual plot for the model. As you can see, the points are not equally scattered around 0, they are more above 0 than they are below 0; this model is showing non-constant variance. There are a few things that can be done to remedy this which are adding more variables or transforming variables if they are skewed. The next sections will be exploring how to fix the non-constant variance with transformations and the addition of variables; let's take a look.
+
+### Let's consider a transformation
+
+After looking back at my prior work, it appears that even after I filtered my price variable it is still right skewed, performing a log transformation should help the skewedness.
+
+```{r price-transformation, echo = FALSE, warning = FALSE, message = FALSE}
+
+  ggplot(airbnb, aes(x = log(dollars))) +
+  geom_histogram() +
+  labs(x = "Log(Price)", 
+       y = "Frequency", 
+       title = "Distribution of Log(Price)")+
+  scale_x_continuous(labels=scales::dollar_format()) + 
+  theme_grey()
+
+```
+
+As you can see from the histogram above, the log transformation worked and my price data is not skewed anymore. Now that we have fixed that, lets re-create our model and see what effect the skewed data had. Also, let's pay close attention to what happens to the residuals and see if the transformation helped any with the non-constant variance we had. 
+
+```{r updated-model-with-price-trans, echo = FALSE}
+
+# Updated model after transformation
+price <- lm(log(dollars) ~ room_type + bathrooms + bedrooms + minimum_nights + review_scores_rating, data = airbnb_new)
+tidy(price)
+glance(price)
+
+# Plotting residuals 
+par(mfrow = c(2,2))
+plot(price)
+
+```
+
+The adjusted r-squared value did increase when I applied the log transformation to price. It was 0.379 and it improved to 0.393. The residuals also now have constant variance. They are more equally spread around 0 and have no pattern when looking at the graph. Also, one other thing to point out is that the normal plot is no longer  skewed, this is another thing that was fixed by our price transformation. Overall, the price transformation was very effective. It made our model stronger and fixed the variance and normality issues. 
+
+### Adding more variables to our model
+
+To see if we can increase the strength of our model to predict the price, let's add some other variables. The variables I believe might have an impact on price are property_type and accommodates. First, we need to look at the values each of these variables contain and see if we need to do any wrangling.
+
+```{r more-variables-to-model, echo = FALSE, include = FALSE}
+
+airbnb %>%
+  count(accommodates)
+
+airbnb %>%
+  count(property_type)
+
+airbnb_new1 <- airbnb_new %>%
+  mutate(accommodates = case_when(accommodates == "1" ~ "1-3",
+                               accommodates == "2" ~ "1-3",
+                               accommodates == "3" ~ "1-3",
+                               accommodates == "4" ~ "4-6",
+                               accommodates == "5" ~ "4-6",
+                               accommodates == "6" ~ "4-6",
+                               TRUE ~ "7+"), 
+        accommodates = factor(accommodates, level = c("1-3", "4-6","7+"))) %>%
+
+  mutate(property_type = case_when(property_type == "Apartment" ~ "Apartment",
+                               property_type == "House" ~ "House",
+                               property_type == "Bed & Breakfast" ~ "Bed & Breakfast",
+                               property_type == "Boat" ~ "Boat",
+                               property_type == "Loft" ~ "Loft",
+                               property_type == "Cabin" ~ "Cabin",
+                               property_type == "Camper/RV" ~ "Camper/RV",
+                               TRUE ~ "Other"), 
+        property_type = factor(property_type, level = c("Apartment", "House","Bed & Breakfast", "Boat", "Loft", "Cabin", "Camper/RV", "Other")))
+
+```
+Now let's refit our model with our two new variables added!
+
+```{r refit-model, echo = FALSE}
+
+price <- lm(log(dollars) ~ room_type + bathrooms + bedrooms + minimum_nights + review_scores_rating + accommodates + property_type, data = airbnb_new1)
+tidy(price)
+glance(price)
+
+final_model <- step(price, direction = "backward")
+tidy(final_model) %>% select(term, estimate, p.value)
+
+final_model %>%
+ tidy() %>%
+ select(term, estimate, p.value) %>%
+ mutate(estimate_exp = exp(estimate))
+
+glance(final_model)
+
+# Plotting residuals 
+par(mfrow = c(2,2))
+plot(final_model)
+
+```
+
+The final model that will answer our question has finally been reached. We started producing our final model by adding a transformation to the price which made our model stronger (adjusted r-squared value of 0.393) and fixed our issue of non-constant variance. Then we took one more step to try and produce a stronger model by adding more variables to our model. We added two variables, property type and accommodates, and fitted out model again. Now, our final model's adjusted r-squared value is 0.472. This is a much higher than any of the r-squared/adjusted r-squared values we have seen in combinations of variables or variables that were explored individually. Again, we used backwards elimination to find the best model, and again all variables were in our final model meaning they were all important when predicting the price of an Airbnb; majority of the variables have significant p-values as well; only 3 variables' p-values are not significant. 
+
+Now to explain what the model tells us and what we can take away from the model. Here are some explanations for what the coefficients of our variables mean.
+
+* room_typePrivate room is going to increase the price by a factor of e^0.626 relative to the baseline which is the Airbnb being an entire house or apartment.
+
+* bathrooms1-1.5 is going to increase the price by a factor of e^1.13 relative to the baseline which are Airbnbs with 0-0.5 bathrooms.
+
+* bedrooms3-5 is going to increase the price by a factor of e^1.26 relative to the baseline which is the Airbnb having 0-2 bedrooms.
+
+* minimum_nights4-7 will increase the price by a factor of e^0.998 relative to the baseline which is the minimum nights to stay at the Airbnb being 1-3.
+
+* For each one point increase of review_scores_rating, price is expected on average to be higher by a factor of e^1.00.
+
+* accommodates4-6 is going to increase the price by a factor of e^1.28 relative to the baseline which is the Airbnb accommodating 1-3 people.
+
+* property_typeHouse is going to increase the price by a factor of e^1.06 relative to the baseline which is the Airbnb being an apartment.
+
+
+## Conclusion 
+
+After completing my project, I have learned that a model will get stronger the more variables you include in it. I also learned that when you have skewed data, instead of filtering it, sometimes performing a transformation will provide a better outcome. Performing transformations also will make the model stronger than it was before. I also learned that sometimes the question you start your project with is not the question that will be on the project at the end. When it comes to answering my research questions there are multiple parts. All of the factors that I explored are factors that have an impact on the price of an Airbnb. This is shown in my final model when I performed backwards elimination on it; no variables were removed from my model which means that the best and strongest model includes all of my variables. Also, majority of the variables have a significant p-value which means that they are important when predicting the price of an Airbnb. That also goes into answering the second part of my research question. In the end, I ending up fitting two models, one with five variables and the other with seven. The model with seven variables had the highest adjusted r-squared value (0.472) which shows that that certain combination of factors have the strongest effect on the price of an Airbnb.
+ 
+I think overall my methods were very organized and I used certain ones when they were appropriate. I would suggest to myself next time to meet with my teacher when I got started on my final project to understand her expectations. I had one plan that I was all in for and then after a conversation with my teacher, I discovered I was heading down the wrong path. I would suggest to myself that next time I schedule a meeting just to check-in and see what my teacher has to say and what suggestions she has. I also feel like seeing an example of a project would help (for future classes of course since this is a first time project). 
+ 
+When it comes to the reliability of my data, I would have liked to see more background information about how the data was collected, by whom, what year, etc. That information would have allowed me to have a deeper understanding of my data and maybe see it from a new perspective that would have made me go a different direction that I did. I do think that my data was valid. There were a lot of different columns about the host, things like their name, ID, years that they have been hosting. I think it would have been pretty hard to make up that information and if someone did, they wouldn't write over 7,000 observations; the size of the data set shows the validity of the data. There were a lot of missing values when it came to the variables that rated different things about the Airbnb, yet there was a overall rating. This seems a little fishy to me as how is there a final rating but not individual ones when the individual ones make up the overall rating. This is something I would have liked to look into more if there was more information about the data set. 
+ 
+I feel that the statistical analysis was appropriate for my data set. Looking at what helps determine the price and analyzing the different variables that affect it is an appropriate analysis for what my data set contained. When there were variance problems with my models, I was able to use the knowledge I had to solve those problems whether it was adding more variables to the models or performing transformations.
+ 
+If I were to start over with the project I would have spent more time exploring my variables and brainstorming ideas for cool visualizations. I went with my first idea of researching what affects the price because it was simple, I knew it was achievable and I had most of the components I needed to complete my analysis. I was afraid to take on too much because at the time of my proposal because I was so busy with my other classes as well; this really affected my ability to be creative and think about the best analysis for my data set. When exploring the data more, I would have looked into the geographic location of all the Airbnbs. I would have liked to see them on a map, so I could visualize where the higher priced Airbnbs were and see if there is any trend. I would do this by creating a map plot and pinpointing each Airbnb on the map. There might be too many points because of the amount of observations, so I probably would have to filter by neighborhood or town. In this instance, I would be researching whether geographic location had an effect on the price of an Airbnb. I would have to find a way to create a regression model from this research question, but this is the way I would go if I were to start over with my project.
+
+If I had more time, I would explore the connection between city and price. I looked at the values for city and there was a lot of wrangling that needed to be done because some city names were spelled wrong or were different and I would have to sort out how to combine them into one level. I also would spend time trying to figure out how to transform my rating variable; it is very left skewed. I tried the log and square root functions, but they didn't workout easily and I didn't have enough time to look deeper into what transformation I needed to do. With more time, transforming the rating variable might have had an impact on the strength of my model.
+
